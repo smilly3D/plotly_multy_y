@@ -1,129 +1,153 @@
-'use client';
+'use client'; // Diretiva para indicar que este é um Componente de Cliente
 
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import Plot from 'react-plotly.js';
+import { Layout, PlotHoverEvent } from 'plotly.js';
 
-// Dados de exemplo, separados por eixo para facilitar o uso no Plotly
-const timeValues = ['10:00', '11:00', '12:00', '13:00', '14:00', '15:00'];
-const airTempValues = [22, 24, 25, 26, 24, 23];
-const windSpeedValues = [5, 7, 8, 6, 9, 7];
-const windDirValues = [180, 195, 210, 205, 220, 215];
+// As interfaces TypeScript e a geração de dados permanecem as mesmas
+interface TraceData {
+  x: string[];
+  y: number[];
+  name: string;
+  type: 'scatter';
+  mode: 'lines+markers';
+  yaxis: string;
+  marker: { color: string };
+}
+
+interface TracesData {
+  temperatura: TraceData;
+  velocidadeVento: TraceData;
+  direcaoVento: TraceData;
+  [key: string]: TraceData;
+}
+
+const generateSampleData = (): TracesData => {
+  const points = 15;
+  const x_labels = Array.from({ length: points }, (_, i) => `12:${i * 5 < 10 ? '0' : ''}${i * 5}`);
+  
+  return {
+    temperatura: {
+      x: x_labels,
+      y: Array.from({ length: points }, () => 15 + Math.random() * 20),
+      name: 'Temperatura (°C)',
+      type: 'scatter',
+      mode: 'lines+markers',
+      yaxis: 'y1',
+      marker: { color: '#ff7f0e' }
+    },
+    velocidadeVento: {
+      x: x_labels,
+      y: Array.from({ length: points }, () => Math.random() * 20),
+      name: 'Velocidade (m/s)',
+      type: 'scatter',
+      mode: 'lines+markers',
+      yaxis: 'y2',
+      marker: { color: '#1f77b4' }
+    },
+    direcaoVento: {
+      x: x_labels,
+      y: Array.from({ length: points }, () => Math.random() * 360),
+      name: 'Direção (°)',
+      type: 'scatter',
+      mode: 'lines+markers',
+      yaxis: 'y3',
+      marker: { color: '#2ca02c' }
+    },
+  };
+};
+
+const allTracesData = generateSampleData();
 
 const PlotlyMultiAxisChart = () => {
+  // MUDANÇA 1: Usar um estado para a curva em hover, em vez de um array de visíveis
+  const [hoveredTraceKey, setHoveredTraceKey] = useState<string | null>(null);
 
-  // 1. Definir os TRACES (as linhas)
-  const traces = [
-    // Trace 1: Temperatura (usará o eixo y padrão, à esquerda)
-    {
-      x: timeValues,
-      y: airTempValues,
-      name: 'Air Temp (°C)',
-      type: 'scatter' as const,
-      mode: 'lines+markers' as const,
-      line: { color: '#8884d8' }
-    },
-    // Trace 2: Velocidade do Vento (associado ao eixo y2, à direita)
-    {
-      x: timeValues,
-      y: windSpeedValues,
-      name: 'Wind Speed (m/s)',
-      type: 'scatter' as const,
-      mode: 'lines+markers' as const,
-      yaxis: 'y2', // <-- AQUI está a mágica!
-      line: { color: '#82ca9d' }
-    },
-    // Trace 3: Direção do Vento (associado ao eixo y3, também à direita)
-    {
-      x: timeValues,
-      y: windDirValues,
-      name: 'Wind Dir (angle)',
-      type: 'scatter' as const,
-      mode: 'lines+markers' as const,
-      yaxis: 'y3', // <-- Associando ao terceiro eixo
-      line: { color: '#ffc658' }
+  // MUDANÇA 2: O layout agora depende de 'hoveredTraceKey'
+  const layout = useMemo(() => {
+    const baseLayout: Partial<Layout> = {
+      title: {
+        text: 'Monitoramento Meteorológico Interativo',
+        font: { size: 24 }
+      },
+      autosize: true,
+      hovermode: 'x unified', // Melhora a experiência de hover com múltiplas linhas
+      xaxis: { title: { text: 'Hora' } },
+      yaxis: {
+        title: { text: 'Temperatura (°C)', font: { color: '#ff7f0e' } },
+        visible: false,
+        tickfont: { color: '#ff7f0e' },
+      },
+      yaxis2: {
+        title: { text: 'Velocidade (m/s)', font: { color: '#1f77b4' } },
+        visible: false,
+        overlaying: 'y',
+        side: 'right',
+        anchor: 'x',
+        tickfont: { color: '#1f77b4' },
+      },
+      yaxis3: {
+        title: { text: 'Direção (°)', font: { color: '#2ca02c' } },
+        visible: false,
+        overlaying: 'y',
+        side: 'right',
+        anchor: 'free',
+        position: 1.0,
+        tickfont: { color: '#2ca02c' },
+      },
+      legend: { x: 0.1, y: 1.15, orientation: 'h' },
+      margin: { r: 120, l: 80, t: 100 },
+      paper_bgcolor: 'rgba(0,0,0,0)',
+      plot_bgcolor: 'rgba(255,255,255,0.9)'
+    };
+
+    // MUDANÇA 3: A lógica agora verifica se existe uma curva em hover
+    if (hoveredTraceKey) {
+      const traceYAxis = allTracesData[hoveredTraceKey]?.yaxis; // 'y1', 'y2', ou 'y3'
+      if (traceYAxis) {
+        const axisKey = traceYAxis === 'y1' ? 'yaxis' : traceYAxis.replace('y', 'yaxis');
+        
+        if (axisKey === 'yaxis' && baseLayout.yaxis) baseLayout.yaxis.visible = true;
+        else if (axisKey === 'yaxis2' && baseLayout.yaxis2) baseLayout.yaxis2.visible = true;
+        else if (axisKey === 'yaxis3' && baseLayout.yaxis3) baseLayout.yaxis3.visible = true;
+      }
     }
-  ];
 
-  // 2. Definir o LAYOUT (a aparência e os eixos)
-  const layout = {
-    title: { 
-      text: 'Monitoramento do Tempo',
-      font: { size: 24 }
-    },
-    // Configuração para o domínio do eixo X para dar espaço aos eixos Y
-    xaxis: { 
-      title: { text: 'Hora' },
-      domain: [0.15, 0.85] // Dar espaço dos dois lados para os eixos Y
-    },
-    // Margens para dar espaço suficiente ao redor do gráfico
-    margin: { r: 80, t: 80, b: 50, l: 80 },
-    autosize: true,
-    
-    // Eixo Y 1 (temperatura, à esquerda - principal)
-    yaxis: {
-      title: {
-        text: 'Air Temp (°C)',
-        font: { color: '#8884d8', size: 14 }
-      },
-      tickfont: { color: '#8884d8' },
-      gridcolor: 'rgba(136, 132, 216, 0.1)',
-      zeroline: false
-    },
-    
-    // Eixo Y 2 (velocidade do vento, à direita)
-    yaxis2: {
-      title: {
-        text: 'Wind Speed (m/s)',
-        font: { color: '#82ca9d', size: 14 }
-      },
-      tickfont: { color: '#82ca9d' },
-      anchor: 'x' as const, // Ancorar ao eixo X
-      overlaying: 'y' as const,
-      side: 'right' as const,
-      showgrid: false,
-    },
-    
-    // Eixo Y 3 (direção do vento, lado esquerdo secundário)
-    yaxis3: {
-      title: {
-        text: 'Wind Dir (angle)',
-        font: { color: '#ffc658', size: 14 }
-      },
-      tickfont: { color: '#ffc658' },
-      anchor: 'free' as const, // Não ancorado a outro eixo
-      overlaying: 'y' as const,
-      side: 'left' as const,
-      position: 0, // Posicionado na posição 0 (bem à esquerda)
-      showgrid: false,
-      range: [175, 225] // Limita o range para melhorar a visualização
-    },
-    
-    // Configuração da legenda
-    legend: { 
-      orientation: 'h' as const, // Horizontal
-      y: 1.1, // Posição acima do gráfico
-      x: 0.5, // Centralizada horizontalmente
-      xanchor: 'center' as const,
-      font: { size: 14 }
-    },
-    
-    // Dimensões explícitas para melhor controle do layout
-    height: 500,
-    paper_bgcolor: 'rgba(0,0,0,0)', // Fundo transparente
-    plot_bgcolor: 'rgba(255,255,255,0.9)' // Fundo do gráfico
-  };
+    return baseLayout;
+  }, [hoveredTraceKey]);
+
+  // MUDANÇA 4: Todas as curvas são sempre enviadas para o gráfico
+  const dataToPlot = Object.values(allTracesData);
 
   return (
-    <Plot
-      data={traces}
-      layout={layout}
-      style={{ width: '100%', height: '100%' }}
-      useResizeHandler={true} // Torna o gráfico responsivo
-      config={{ 
-        responsive: true,
-        displayModeBar: false // Remove a barra de ferramentas do Plotly
-      }}
-    />
+    <div style={{ width: '100%', fontFamily: 'Arial, sans-serif' }}>
+      <div style={{ marginBottom: '20px', textAlign: 'center' }}>
+        {/* MUDANÇA 5: Instruções atualizadas, botões removidos */}
+        <h3>Passe o mouse sobre uma linha</h3>
+        <p>O eixo Y correspondente aparecerá em evidência.</p>
+      </div>
+      
+      <Plot
+        data={dataToPlot}
+        layout={layout}
+        style={{ width: '100%', height: '500px' }}
+        useResizeHandler={true}
+        config={{ responsive: true, displayModeBar: false }}
+        // MUDANÇA 6: Adicionados os eventos onHover e onUnhover
+        onHover={(event: PlotHoverEvent) => {
+          if (event.points.length > 0) {
+            // Pega o nome da curva do ponto em hover
+            const traceName = event.points[0].data.name;
+            // Encontra a chave correspondente em nossos dados
+            const key = Object.keys(allTracesData).find(k => allTracesData[k].name === traceName);
+            setHoveredTraceKey(key || null);
+          }
+        }}
+        onUnhover={() => {
+          setHoveredTraceKey(null);
+        }}
+      />
+    </div>
   );
 };
 
