@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import Plot from 'react-plotly.js';
 import { Layout, PlotHoverEvent, Data } from 'plotly.js';
 
@@ -69,7 +69,89 @@ const PlotlyMultiAxisChart = () => {
   
   // Estado adicional para a funcionalidade de hover
   const [hoveredTraceKey, setHoveredTraceKey] = useState<string | null>(null);
+  
+  // Estados para controlar o tooltip
+  const [tooltip, setTooltip] = useState({
+    visible: false,
+    x: 0,
+    y: 0,
+    text: '',
+    xValue: '',
+    yValues: {} as Record<string, number>
+  });
+  
+  // Referência para o contêiner do gráfico
+  const plotContainerRef = useRef<HTMLDivElement>(null);
 
+  // Função para encontrar o ponto mais próximo ao mouse
+  const findClosestPoint = (mouseX: number, mouseY: number) => {
+    if (!plotContainerRef.current) return null;
+    
+    const plotRect = plotContainerRef.current.getBoundingClientRect();
+    const plotWidth = plotRect.width;
+    const plotHeight = plotRect.height;
+    
+    // Normalizar as coordenadas do mouse para percentuais do gráfico
+    const percentX = (mouseX - plotRect.left) / plotWidth;
+    
+    // Encontrar o índice aproximado baseado na posição X do mouse
+    const allTraces = Object.keys(allTracesData);
+    if (allTraces.length === 0 || visibleTraces.length === 0) return null;
+    
+    const firstTrace = allTracesData[allTraces[0]];
+    const pointCount = firstTrace.x.length;
+    const approximateIndex = Math.floor(percentX * pointCount);
+    
+    // Limitar o índice ao intervalo válido
+    const validIndex = Math.max(0, Math.min(approximateIndex, pointCount - 1));
+    
+    // Obter o valor X correspondente
+    const xValue = firstTrace.x[validIndex];
+    
+    // Coletar os valores Y para cada trace neste ponto X
+    const yValues: Record<string, number> = {};
+    visibleTraces.forEach(traceKey => {
+      const trace = allTracesData[traceKey];
+      yValues[traceKey] = trace.y[validIndex];
+    });
+    
+    return {
+      xValue,
+      yValues,
+      index: validIndex
+    };
+  };
+  
+  // Função para lidar com o movimento do mouse no gráfico
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!plotContainerRef.current) return;
+    
+    const rect = plotContainerRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    // Ignorar movimentos fora da área de plotagem
+    if (mouseX < 0 || mouseX > rect.width || mouseY < 0 || mouseY > rect.height) {
+      setTooltip(prev => ({ ...prev, visible: false }));
+      return;
+    }
+    
+    // Encontrar o ponto mais próximo
+    const closestPoint = findClosestPoint(e.clientX, e.clientY);
+    if (!closestPoint) return;
+    
+    // Atualizar o tooltip
+    setTooltip({
+      visible: true,
+      x: mouseX,
+      y: mouseY,
+      text: 'Ponto mais próximo',
+      xValue: closestPoint.xValue,
+      yValues: closestPoint.yValues
+    });
+  };
+  
+  // Função para controlar quais traces estão visíveis via botões
   const handleTraceToggle = (traceKey: string) => {
     setVisibleTraces(prev => {
       const isVisible = prev.includes(traceKey);
@@ -83,7 +165,7 @@ const PlotlyMultiAxisChart = () => {
     });
   };
 
-  // 3. Lógica para construir o layout dinâmico
+  // Layout
   const layout = useMemo(() => {
     const baseLayout: Partial<Layout> = {
       title: {
@@ -137,6 +219,11 @@ const PlotlyMultiAxisChart = () => {
       hovermode: 'closest',
       paper_bgcolor: 'rgba(0,0,0,0)',
       plot_bgcolor: 'rgba(255,255,255,0.9)',
+      hoverlabel: {
+        bgcolor: 'rgba(255,255,255,0.9)',
+        font: { size: 14 },
+        bordercolor: '#ddd'
+      }
     };
 
     // A MÁGICA ACONTECE AQUI! Bem simplificada agora
@@ -209,28 +296,129 @@ const PlotlyMultiAxisChart = () => {
         ))}
       </div>
       
-      <Plot
-        data={dataToPlot}
-        layout={layout}
-        style={{ width: '100%', height: '500px' }}
-        useResizeHandler={true}
-        config={{ responsive: true, displayModeBar: false }}
-        onHover={(event: PlotHoverEvent) => {
-          if (event.points && event.points.length > 0) {
-            const traceName = event.points[0].data.name;
-            // Encontrar qual trace está sendo hover com base no nome
-            const key = Object.keys(allTracesData).find(k => allTracesData[k].name === traceName);
-            
-            // Importante: só mostra o hover se a linha estiver visível conforme seleção dos botões
-            if (key && visibleTraces.includes(key)) {
-              setHoveredTraceKey(key);
+      <div 
+        ref={plotContainerRef} 
+        style={{ position: 'relative', width: '100%' }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setTooltip(prev => ({ ...prev, visible: false }))}
+      >
+        <Plot
+          data={dataToPlot}
+          layout={layout}
+          style={{ width: '100%', height: '500px' }}
+          useResizeHandler={true}
+          config={{ responsive: true, displayModeBar: false }}
+          onHover={(event: PlotHoverEvent) => {
+            if (event.points && event.points.length > 0) {
+              const point = event.points[0];
+              const traceName = point.data.name;
+              const xValue = point.x?.toString() || '';
+              
+              // Encontrar qual trace está sendo hover com base no nome
+              const key = Object.keys(allTracesData).find(k => allTracesData[k].name === traceName);
+              
+              // Importante: só mostra o hover se a linha estiver visível conforme seleção dos botões
+              if (key && visibleTraces.includes(key)) {
+                setHoveredTraceKey(key);
+              }
+              
+              // Configurar o tooltip com as informações do ponto
+              const yValues: Record<string, number> = {};
+              
+              // Pegar valores de Y para todos os traces visíveis neste ponto X
+              visibleTraces.forEach(traceKey => {
+                const trace = allTracesData[traceKey];
+                const pointIndex = trace.x.indexOf(xValue);
+                if (pointIndex !== -1) {
+                  yValues[traceKey] = trace.y[pointIndex];
+                }
+              });
+              
+              // Definir posição do tooltip baseado no evento do mouse
+              const rect = plotContainerRef.current?.getBoundingClientRect();
+              if (rect) {
+                const x = event.event.clientX - rect.left;
+                const y = event.event.clientY - rect.top;
+                
+                setTooltip({
+                  visible: true,
+                  x,
+                  y,
+                  text: traceName,
+                  xValue,
+                  yValues
+                });
+              }
             }
-          }
-        }}
-        onUnhover={() => {
-          setHoveredTraceKey(null);
-        }}
-      />
+          }}
+          onUnhover={() => {
+            setHoveredTraceKey(null);
+            setTooltip(prev => ({ ...prev, visible: false }));
+          }}
+          onClick={() => {
+            setTooltip(prev => ({ ...prev, visible: false }));
+          }}
+        />
+        
+        {tooltip.visible && (
+          <div 
+            style={{
+              position: 'absolute',
+              left: `${tooltip.x + 10}px`,
+              top: `${tooltip.y - 10}px`,
+              backgroundColor: 'rgba(255, 255, 255, 0.95)',
+              border: '1px solid #ccc',
+              borderRadius: '6px',
+              padding: '10px',
+              boxShadow: '0 3px 12px rgba(0,0,0,0.15)',
+              zIndex: 1000,
+              maxWidth: '250px',
+              fontSize: '14px',
+              transition: 'all 0.15s ease-in-out'
+            }}
+          >
+            <div style={{ 
+              marginBottom: '8px', 
+              fontWeight: 'bold', 
+              borderBottom: '1px solid #eee',
+              paddingBottom: '5px',
+              fontSize: '15px'
+            }}>
+              {tooltip.xValue}
+            </div>
+            {Object.keys(tooltip.yValues).map(key => (
+              <div key={key} style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between',
+                color: allTracesData[key].marker.color,
+                padding: '3px 0',
+                alignItems: 'center'
+              }}>
+                <span style={{ display: 'flex', alignItems: 'center' }}>
+                  <span style={{
+                    display: 'inline-block',
+                    width: '10px',
+                    height: '10px',
+                    backgroundColor: allTracesData[key].marker.color,
+                    marginRight: '5px',
+                    borderRadius: '50%'
+                  }}></span>
+                  {allTracesData[key].name}:
+                </span>
+                <span style={{ 
+                  marginLeft: '10px', 
+                  fontWeight: 'bold',
+                  backgroundColor: 'rgba(0,0,0,0.05)',
+                  padding: '2px 6px',
+                  borderRadius: '3px'
+                }}>
+                  {tooltip.yValues[key].toFixed(2)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
