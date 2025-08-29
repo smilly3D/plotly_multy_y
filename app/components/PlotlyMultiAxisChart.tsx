@@ -139,24 +139,13 @@ const PlotlyMultiAxisChart = () => {
       plot_bgcolor: 'rgba(255,255,255,0.9)',
     };
 
-    // A MÁGICA ACONTECE AQUI!
-    // Prioriza o hover sobre a seleção por botão
-    if (hoveredTraceKey) {
-      // Se temos uma linha em hover, mostra seu eixo Y
-      const traceYAxis = allTracesData[hoveredTraceKey].yaxis;
-      const axisKey = traceYAxis === 'y1' ? 'yaxis' : traceYAxis.replace('y', 'yaxis');
-      
-      if (axisKey === 'yaxis' && baseLayout.yaxis) {
-        baseLayout.yaxis.visible = true;
-      } else if (axisKey === 'yaxis2' && baseLayout.yaxis2) {
-        baseLayout.yaxis2.visible = true;
-      } else if (axisKey === 'yaxis3' && baseLayout.yaxis3) {
-        baseLayout.yaxis3.visible = true;
-      }
-    } else if (visibleTraces.length === 1) {
-      // Se não temos hover, mas temos apenas uma curva selecionada, mostra seu eixo Y
-      const singleTraceKey = visibleTraces[0];
-      const traceYAxis = allTracesData[singleTraceKey].yaxis;
+    // A MÁGICA ACONTECE AQUI! Bem simplificada agora
+    // Trata hover e single selection da mesma forma
+    const singleActiveTrace = hoveredTraceKey || (visibleTraces.length === 1 ? visibleTraces[0] : null);
+    
+    if (singleActiveTrace) {
+      // Quando temos apenas um trace ativo (seja por hover ou seleção única), mostra o eixo Y correspondente
+      const traceYAxis = allTracesData[singleActiveTrace].yaxis;
       const axisKey = traceYAxis === 'y1' ? 'yaxis' : traceYAxis.replace('y', 'yaxis');
       
       if (axisKey === 'yaxis' && baseLayout.yaxis) {
@@ -167,25 +156,16 @@ const PlotlyMultiAxisChart = () => {
         baseLayout.yaxis3.visible = true;
       }
     }
-    
-    // Se houver 0 ou mais de 1 curva visível e não houver hover, todos os eixos permanecem com `visible: false`
     
     return baseLayout;
   }, [visibleTraces, hoveredTraceKey]);
 
   // Combina a funcionalidade de hover com a seleção por botão
   const dataToPlot: Partial<Data>[] = useMemo(() => {
-    let tracesToShow: string[];
+    // Se temos uma linha em hover, tratamos exatamente como se só ela estivesse selecionada
+    const effectiveVisibleTraces = hoveredTraceKey ? [hoveredTraceKey] : visibleTraces;
     
-    if (hoveredTraceKey) {
-      // Se temos uma linha em hover, mostra apenas essa linha
-      tracesToShow = [hoveredTraceKey];
-    } else {
-      // Caso contrário, mostra todas as linhas selecionadas pelos botões
-      tracesToShow = visibleTraces;
-    }
-    
-    return tracesToShow.map(key => {
+    return effectiveVisibleTraces.map(key => {
       const trace = allTracesData[key];
       
       // Se temos hover, destaca a linha em hover com uma linha mais grossa
@@ -208,7 +188,7 @@ const PlotlyMultiAxisChart = () => {
     <div style={{ width: '100%', fontFamily: 'Arial, sans-serif' }}>
       <div style={{ marginBottom: '20px', textAlign: 'center' }}>
         <h3>Controles do Gráfico</h3>
-        <p>Selecione uma única curva para ver seu eixo Y. Passe o mouse sobre uma linha para isolá-la.</p>
+        <p>Selecione as curvas que deseja visualizar. Passe o mouse sobre uma linha para vê-la isoladamente com seu eixo Y.</p>
         {Object.keys(allTracesData).map(key => (
           <button
             key={key}
@@ -238,8 +218,11 @@ const PlotlyMultiAxisChart = () => {
         onHover={(event: PlotHoverEvent) => {
           if (event.points && event.points.length > 0) {
             const traceName = event.points[0].data.name;
+            // Encontrar qual trace está sendo hover com base no nome
             const key = Object.keys(allTracesData).find(k => allTracesData[k].name === traceName);
-            if (key) {
+            
+            // Importante: só mostra o hover se a linha estiver visível conforme seleção dos botões
+            if (key && visibleTraces.includes(key)) {
               setHoveredTraceKey(key);
             }
           }
