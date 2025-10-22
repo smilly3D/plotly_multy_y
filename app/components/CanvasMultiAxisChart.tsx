@@ -33,7 +33,13 @@ const CanvasMultiAxisChart: React.FC = () => {
   const [zoom, setZoom] = useState({ scale: 1, offsetX: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [dimensions, setDimensions] = useState({ width: 800, height: 400 });
+  const [dimensions, setDimensions] = useState({ width: 800, height: 500 });
+  
+  // Estados para controlar a seleção de área para zoom
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectionStart, setSelectionStart] = useState({ x: 0, y: 0 });
+  const [selectionEnd, setSelectionEnd] = useState({ x: 0, y: 0 });
+  const [isSelecting, setIsSelecting] = useState(false);
 
   // Dados de exemplo fixos para evitar atualizações a cada renderização
   const fixedSampleData: DataSeries[] = [
@@ -113,7 +119,7 @@ const CanvasMultiAxisChart: React.FC = () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Definir margens e área do gráfico
-    const margin = { top: 40, right: 180, bottom: 40, left: 60 };
+    const margin = { top: 50, right: 180, bottom: 40, left: 60 };
     const chartWidth = canvas.width - margin.left - margin.right;
     const chartHeight = canvas.height - margin.top - margin.bottom;
 
@@ -122,7 +128,7 @@ const CanvasMultiAxisChart: React.FC = () => {
     ctx.fillRect(margin.left, margin.top, chartWidth, chartHeight);
 
     // Desenhar título
-    ctx.font = 'bold 20px Arial';
+    ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'center';
     ctx.fillStyle = 'black';
     ctx.fillText('Monitoramento Meteorológico Interativo', canvas.width / 2, 25);
@@ -300,6 +306,23 @@ const CanvasMultiAxisChart: React.FC = () => {
       ctx.fillStyle = hexToRgba(series.color, textOpacity);
       ctx.fillText(series.name, itemX + 25, legendY + 4);
     });
+    
+    // Desenhar retângulo de seleção se estiver em modo de seleção e estiver selecionando
+    if (selectionMode && isSelecting) {
+      const x = Math.min(selectionStart.x, selectionEnd.x);
+      const y = Math.min(selectionStart.y, selectionEnd.y);
+      const width = Math.abs(selectionEnd.x - selectionStart.x);
+      const height = Math.abs(selectionEnd.y - selectionStart.y);
+      
+      // Retângulo semi-transparente
+      ctx.fillStyle = 'rgba(66, 133, 244, 0.2)';
+      ctx.fillRect(x, y, width, height);
+      
+      // Borda do retângulo
+      ctx.strokeStyle = 'rgba(66, 133, 244, 0.8)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, y, width, height);
+    }
   };
 
   // Converter cor hex para rgba
@@ -371,12 +394,72 @@ const CanvasMultiAxisChart: React.FC = () => {
     return closestSeriesIndex;
   };
 
+  // Função para converter as coordenadas do mouse em coordenadas do canvas
+  const getCanvasCoordinates = (clientX: number, clientY: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
+  };
+  
+  // Função para aplicar zoom em uma área selecionada
+  const zoomToSelection = () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !isSelecting) return;
+    
+    const margin = { top: 40, right: 180, bottom: 40, left: 60 };
+    const chartWidth = canvas.width - margin.left - margin.right;
+    
+    // Converter coordenadas de seleção para valores normalizados (0 a 1) no eixo X
+    const minX = Math.min(selectionStart.x, selectionEnd.x);
+    const maxX = Math.max(selectionStart.x, selectionEnd.x);
+    
+    // Ignorar seleções muito pequenas (podem ser cliques acidentais)
+    if (maxX - minX < 20) {
+      setIsSelecting(false);
+      return;
+    }
+    
+    // Normalizar para a área do gráfico
+    const normalizedMinX = (minX - margin.left) / chartWidth;
+    const normalizedMaxX = (maxX - margin.left) / chartWidth;
+    
+    // Calcular novo zoom e offset
+    // Quanto menor o intervalo selecionado, maior o zoom
+    const selectionWidth = normalizedMaxX - normalizedMinX;
+    const newScale = Math.max(1, zoom.scale / selectionWidth);
+    
+    // Centralizar no ponto médio da seleção
+    const selectionCenter = (normalizedMinX + normalizedMaxX) / 2;
+    const newOffsetX = -selectionCenter * newScale + 0.5;
+    
+    setZoom({
+      scale: newScale,
+      offsetX: newOffsetX
+    });
+    
+    // Limpar seleção
+    setIsSelecting(false);
+  };
+
   // Manipuladores de eventos
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
-    if (isDragging) {
+    const coords = getCanvasCoordinates(e.clientX, e.clientY);
+    
+    if (selectionMode && isSelecting) {
+      // Atualizar o ponto final da seleção durante o arrasto
+      setSelectionEnd(coords);
+    } else if (isDragging) {
       // Calcular movimento para pan
       const deltaX = (e.clientX - dragStart.x) / canvas.width;
       setZoom(prev => ({
@@ -392,16 +475,30 @@ const CanvasMultiAxisChart: React.FC = () => {
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    setIsDragging(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
+    const coords = getCanvasCoordinates(e.clientX, e.clientY);
+    
+    if (selectionMode) {
+      setIsSelecting(true);
+      setSelectionStart(coords);
+      setSelectionEnd(coords);
+    } else {
+      setIsDragging(true);
+      setDragStart({ x: e.clientX, y: e.clientY });
+    }
   };
 
   const handleMouseUp = () => {
+    if (selectionMode && isSelecting) {
+      zoomToSelection();
+    }
+    
     setIsDragging(false);
+    setIsSelecting(false);
   };
 
   const handleMouseOut = () => {
     setIsDragging(false);
+    setIsSelecting(false);
     setHoveredSeries(null);
   };
 
@@ -430,6 +527,15 @@ const CanvasMultiAxisChart: React.FC = () => {
   const handleResetZoom = () => {
     setZoom({ scale: 1, offsetX: 0 });
   };
+  
+  // Alternar modo de seleção
+  const toggleSelectionMode = () => {
+    setSelectionMode(!selectionMode);
+    // Se estiver desativando o modo de seleção, limpe qualquer seleção ativa
+    if (selectionMode) {
+      setIsSelecting(false);
+    }
+  };
 
   // Redimensionar canvas quando o tamanho da janela mudar
   useEffect(() => {
@@ -440,7 +546,7 @@ const CanvasMultiAxisChart: React.FC = () => {
         if (Math.abs(width - dimensions.width) > 5) { // Tolerância de 5px
           setDimensions({
             width: width,
-            height: width * 0.5 // Aspect ratio 2:1
+            height: Math.max(400, width * 0.5) // Aspect ratio 2:1 com altura mínima de 400px
           });
         }
       }
@@ -466,12 +572,13 @@ const CanvasMultiAxisChart: React.FC = () => {
 
   return (
     <div style={{ width: '100%', fontFamily: 'Arial, sans-serif' }}>
-      <div style={{ marginBottom: '20px', textAlign: 'center' }}>
+      <div style={{ marginBottom: '10px', textAlign: 'center' }}>
         <h3>Canvas Multi-Axis Chart</h3>
         <p>Passe o mouse sobre uma linha para destacá-la. Use a roda do mouse para zoom, arraste para mover.</p>
-        <div style={{ marginBottom: '10px' }}>
+        <div style={{ marginBottom: '10px', display: 'flex', justifyContent: 'center', gap: '10px' }}>
           <button 
             onClick={handleResetZoom}
+            className=''
             style={{
               padding: '6px 12px',
               backgroundColor: '#f8f9fa',
@@ -482,7 +589,27 @@ const CanvasMultiAxisChart: React.FC = () => {
           >
             Resetar Zoom
           </button>
+          <button 
+            onClick={toggleSelectionMode}
+            style={{
+              padding: '6px 12px',
+              backgroundColor: selectionMode ? '#4285f4' : '#f8f9fa',
+              color: selectionMode ? 'white' : 'black',
+              border: `1px solid ${selectionMode ? '#2a66cc' : '#dee2e6'}`,
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            {selectionMode ? 'Desativar Seleção de Área' : 'Ativar Seleção de Área'}
+          </button>
         </div>
+        {selectionMode && (
+          <div style={{ marginBottom: '10px' }}>
+            <p style={{ fontSize: '14px', color: '#4285f4' }}>
+              Modo de seleção ativo: Clique e arraste para selecionar uma área para zoom.
+            </p>
+          </div>
+        )}
       </div>
       
       <div 
@@ -498,7 +625,11 @@ const CanvasMultiAxisChart: React.FC = () => {
           onMouseUp={handleMouseUp}
           onMouseOut={handleMouseOut}
           onWheel={handleWheel}
-          style={{ width: '100%', height: 'auto' }}
+          style={{ 
+            width: '100%', 
+            height: 'auto',
+            cursor: selectionMode ? 'crosshair' : isDragging ? 'grabbing' : 'grab'
+          }}
         />
       </div>
     </div>
