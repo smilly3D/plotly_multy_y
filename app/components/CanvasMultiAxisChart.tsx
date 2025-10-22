@@ -2,6 +2,8 @@
 
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 
+// Helper functions for canvas drawing
+
 // Define os tipos para dados do gráfico
 interface DataPoint {
   x: number;
@@ -26,6 +28,18 @@ interface YAxis {
   offset: number; // Posição do eixo no layout
 }
 
+// Vamos substituir o uso de roundRect por um método manual
+const drawRoundedRect = (ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) => {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + width, y, x + width, y + height, radius);
+  ctx.arcTo(x + width, y + height, x, y + height, radius);
+  ctx.arcTo(x, y + height, x, y, radius);
+  ctx.arcTo(x, y, x + width, y, radius);
+  ctx.closePath();
+  return ctx;
+};
+
 const CanvasMultiAxisChart: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -40,6 +54,9 @@ const CanvasMultiAxisChart: React.FC = () => {
   const [selectionStart, setSelectionStart] = useState({ x: 0, y: 0 });
   const [selectionEnd, setSelectionEnd] = useState({ x: 0, y: 0 });
   const [isSelecting, setIsSelecting] = useState(false);
+  
+  // Estado para tooltip
+  const [tooltip, setTooltip] = useState<{x: number, y: number, value: number, series: number} | null>(null);
 
   // Dados de exemplo fixos para evitar atualizações a cada renderização
   const fixedSampleData: DataSeries[] = [
@@ -98,10 +115,10 @@ const CanvasMultiAxisChart: React.FC = () => {
   // Configuração dos eixos Y
   const yAxes: YAxis[] = [
     { id: 1, title: 'Temperatura (°C)', color: '#ff7f0e', min: 0, max: 40, position: 'left', offset: 0 },
-    { id: 2, title: 'Velocidade (m/s)', color: '#1f77b4', min: 0, max: 25, position: 'right', offset: 0 },
-    { id: 3, title: 'Direção (°)', color: '#2ca02c', min: 0, max: 360, position: 'right', offset: 50 },
-    { id: 4, title: 'aVento (°)', color: '#fffaaa', min: 0, max: 360, position: 'right', offset: 100 },
-    { id: 5, title: 'bVento (°)', color: '#8fcffc', min: 0, max: 360, position: 'right', offset: 150 }
+    { id: 2, title: 'Velocidade (m/s)', color: '#1f77b4', min: 0, max: 25, position: 'left', offset: 0 },
+    { id: 3, title: 'Direção (°)', color: '#2ca02c', min: 0, max: 360, position: 'left', offset: 0 },
+    { id: 4, title: 'aVento (°)', color: '#fffaaa', min: 0, max: 360, position: 'left', offset: 0 },
+    { id: 5, title: 'bVento (°)', color: '#8fcffc', min: 0, max: 360, position: 'left', offset: 0 }
   ];
 
   // Utilizando os dados fixos de amostra
@@ -119,7 +136,7 @@ const CanvasMultiAxisChart: React.FC = () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Definir margens e área do gráfico
-    const margin = { top: 50, right: 180, bottom: 40, left: 60 };
+    const margin = { top: 50, right: 60, bottom: 40, left: 80 };
     const chartWidth = canvas.width - margin.left - margin.right;
     const chartHeight = canvas.height - margin.top - margin.bottom;
 
@@ -173,58 +190,108 @@ const CanvasMultiAxisChart: React.FC = () => {
     ctx.fillText('Hora', margin.left + chartWidth / 2, margin.top + chartHeight + 35);
 
     // Desenhar eixos Y e linhas do gráfico
-    yAxes.forEach(axis => {
-      // Determinar se este eixo está destacado ou não
-      const isHighlighted = hoveredSeries === null || 
-                         seriesData.findIndex(s => s.axisId === axis.id) === hoveredSeries;
-      
-      // Opacidade baseada no estado de hover
-      const axisOpacity = isHighlighted ? 1.0 : 0.3;
-      
-      // Posição do eixo Y
-      const axisX = axis.position === 'left' 
-          ? margin.left 
-          : margin.left + chartWidth + axis.offset;
-
-      // Desenhar eixo Y
+    // Primeiro, desenhar um eixo Y genérico cinza quando nenhuma linha estiver em hover
+    const genericAxisX = margin.left;
+    
+    // Variável para rastrear se já desenhamos algum eixo Y
+    let drewAnyAxis = false;
+    
+    if (hoveredSeries === null) {
+      // Desenhar eixo Y genérico
       ctx.beginPath();
-      ctx.moveTo(axisX, margin.top);
-      ctx.lineTo(axisX, margin.top + chartHeight);
-      ctx.strokeStyle = hexToRgba(axis.color, axisOpacity);
-      ctx.lineWidth = isHighlighted ? 2 : 1;
+      ctx.moveTo(genericAxisX, margin.top);
+      ctx.lineTo(genericAxisX, margin.top + chartHeight);
+      ctx.strokeStyle = 'rgba(120, 120, 120, 0.8)';
+      ctx.lineWidth = 2;
       ctx.stroke();
-
-      // Desenhar título do eixo Y
+      
+      // Título genérico
       ctx.save();
-      ctx.translate(axisX, margin.top + chartHeight / 2);
+      ctx.translate(genericAxisX, margin.top + chartHeight / 2);
       ctx.rotate(-Math.PI / 2);
       ctx.textAlign = 'center';
-      ctx.font = isHighlighted ? 'bold 14px Arial' : '14px Arial';
-      ctx.fillStyle = hexToRgba(axis.color, axisOpacity);
-      ctx.fillText(axis.title, 0, axis.position === 'left' ? -25 : 15);
+      ctx.font = 'bold 14px Arial';
+      ctx.fillStyle = 'rgba(80, 80, 80, 0.9)';
+      ctx.fillText('Valor', 0, -25);
       ctx.restore();
-
-      // Desenhar marcas do eixo Y
+      
+      // Marcações genéricas
       const yTicks = 5;
-      ctx.textAlign = axis.position === 'left' ? 'right' : 'left';
+      ctx.textAlign = 'right';
       ctx.font = '12px Arial';
       
       for (let i = 0; i <= yTicks; i++) {
-        const value = axis.min + (i / yTicks) * (axis.max - axis.min);
         const yPos = margin.top + chartHeight - (i / yTicks) * chartHeight;
         
         ctx.beginPath();
-        ctx.moveTo(axisX, yPos);
-        ctx.lineTo(axis.position === 'left' ? axisX - 5 : axisX + 5, yPos);
-        ctx.strokeStyle = hexToRgba(axis.color, axisOpacity);
+        ctx.moveTo(genericAxisX, yPos);
+        ctx.lineTo(genericAxisX - 5, yPos);
+        ctx.strokeStyle = 'rgba(120, 120, 120, 0.8)';
         ctx.stroke();
         
-        ctx.fillStyle = hexToRgba(axis.color, axisOpacity);
-        ctx.fillText(
-          value.toFixed(1), 
-          axis.position === 'left' ? axisX - 10 : axisX + 10, 
-          yPos + 4
-        );
+        ctx.fillStyle = 'rgba(80, 80, 80, 0.9)';
+        const value = i * 20; // Escala genérica de 0-100
+        ctx.fillText(value.toString(), genericAxisX - 10, yPos + 4);
+      }
+      
+      drewAnyAxis = true;
+    }
+    
+    // Agora desenhar eixos específicos baseados no hover
+    yAxes.forEach(axis => {
+      // Determinar se este eixo está destacado ou não
+      const axisSeriesIndex = seriesData.findIndex(s => s.axisId === axis.id);
+      const isHighlighted = hoveredSeries === axisSeriesIndex;
+      
+      // Posição do eixo Y - sempre no lado esquerdo
+      const axisX = margin.left;
+
+      // Só desenha o eixo específico quando a série correspondente estiver sob hover
+      if (isHighlighted) {
+        // Desenhar fundo para melhor legibilidade
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(axisX - 65, margin.top, 65, chartHeight);
+        
+        // Desenhar eixo Y
+        ctx.beginPath();
+        ctx.moveTo(axisX, margin.top);
+        ctx.lineTo(axisX, margin.top + chartHeight);
+        ctx.strokeStyle = hexToRgba(axis.color, 1.0);
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Desenhar título do eixo Y
+        ctx.save();
+        ctx.translate(axisX, margin.top + chartHeight / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 14px Arial';
+        ctx.fillStyle = hexToRgba(axis.color, 1.0);
+        ctx.fillText(axis.title, 0, -25);
+        ctx.restore();
+
+        // Desenhar marcas do eixo Y
+        const yTicks = 5;
+        ctx.textAlign = 'right';
+        ctx.font = '12px Arial';
+        
+        for (let i = 0; i <= yTicks; i++) {
+          const value = axis.min + (i / yTicks) * (axis.max - axis.min);
+          const yPos = margin.top + chartHeight - (i / yTicks) * chartHeight;
+          
+          ctx.beginPath();
+          ctx.moveTo(axisX, yPos);
+          ctx.lineTo(axisX - 5, yPos);
+          ctx.strokeStyle = hexToRgba(axis.color, 1.0);
+          ctx.stroke();
+          
+          ctx.fillStyle = hexToRgba(axis.color, 1.0);
+          ctx.fillText(
+            value.toFixed(1), 
+            axisX - 10, 
+            yPos + 4
+          );
+        }
       }
 
       // Encontrar a série correspondente a este eixo
@@ -232,10 +299,12 @@ const CanvasMultiAxisChart: React.FC = () => {
       if (!series) return;
 
       // Mapear valores da série para coordenadas do canvas
-      const seriesIndex = seriesData.findIndex(s => s.axisId === axis.id);
-      const isSeriesHighlighted = hoveredSeries === null || hoveredSeries === seriesIndex;
+      const currentSeriesIndex = seriesData.findIndex(s => s.axisId === axis.id);
+      const isSeriesHighlighted = hoveredSeries === null || hoveredSeries === currentSeriesIndex;
       const lineOpacity = isSeriesHighlighted ? 1.0 : 0.3;
       const lineWidth = isSeriesHighlighted ? 3 : 1.5;
+      
+      // Se estamos em hover nesta série, podemos mostrar um tooltip com o valor atual
       
       // Função de escala para o eixo Y
       const yScale = (y: number) => {
@@ -279,12 +348,12 @@ const CanvasMultiAxisChart: React.FC = () => {
     const legendX = margin.left;
     const legendY = margin.top - 20;
     
-    seriesData.forEach((series, index) => {
-      const isHighlighted = hoveredSeries === null || hoveredSeries === index;
+    seriesData.forEach((series, legendIndex) => {
+      const isHighlighted = hoveredSeries === null || hoveredSeries === legendIndex;
       const textOpacity = isHighlighted ? 1.0 : 0.3;
       
       // Posição do item na legenda
-      const itemX = legendX + index * 120;
+      const itemX = legendX + legendIndex * 120;
       
       // Desenhar linha da legenda
       ctx.beginPath();
@@ -331,6 +400,45 @@ const CanvasMultiAxisChart: React.FC = () => {
       ctx.fillRect(x - cornerSize/2, y + height - cornerSize/2, cornerSize, cornerSize);
       ctx.fillRect(x + width - cornerSize/2, y + height - cornerSize/2, cornerSize, cornerSize);
     }
+    
+    // Desenhar tooltip se estiver disponível
+    if (tooltip && hoveredSeries !== null) {
+      const tooltipSeries = seriesData[tooltip.series];
+      const tooltipAxis = yAxes.find(a => a.id === tooltipSeries.axisId);
+      if (!tooltipAxis) return;
+      
+      // Posição do tooltip
+      const tooltipWidth = 120;
+      const tooltipHeight = 80;
+      const tooltipX = Math.min(canvas.width - tooltipWidth - 10, Math.max(margin.left + 10, tooltip.x));
+      const tooltipY = Math.min(tooltip.y - tooltipHeight - 10, canvas.height - tooltipHeight - 10);
+      
+      // Fundo do tooltip
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.strokeStyle = hexToRgba(tooltipSeries.color, 0.9);
+      ctx.lineWidth = 2;
+      drawRoundedRect(ctx, tooltipX, tooltipY, tooltipWidth, tooltipHeight, 5);
+      ctx.fill();
+      ctx.stroke();
+      
+      // Conteúdo do tooltip
+      ctx.fillStyle = hexToRgba(tooltipSeries.color, 1.0);
+      ctx.font = 'bold 14px Arial';
+      ctx.textAlign = 'left';
+      ctx.fillText(tooltipSeries.name, tooltipX + 10, tooltipY + 20);
+      
+      ctx.fillStyle = 'rgba(50, 50, 50, 0.9)';
+      ctx.font = '12px Arial';
+      
+      // Horário formatado
+      const xValue = Math.floor(((tooltip.x - margin.left) / chartWidth) * 100) / 100;
+      const hour = Math.floor(xValue * 24);
+      const minute = Math.floor((xValue * 24 * 60) % 60);
+      ctx.fillText(`Hora: ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`, tooltipX + 10, tooltipY + 40);
+      
+      // Valor formatado
+      ctx.fillText(`Valor: ${tooltip.value.toFixed(2)}`, tooltipX + 10, tooltipY + 60);
+    }
   };
 
   // Converter cor hex para rgba
@@ -353,13 +461,24 @@ const CanvasMultiAxisChart: React.FC = () => {
     if (!canvas) return null;
 
     const rect = canvas.getBoundingClientRect();
-    const margin = { top: 40, right: 180, bottom: 40, left: 60 };
+    const margin = { top: 50, right: 60, bottom: 40, left: 80 };
     const chartWidth = canvas.width - margin.left - margin.right;
     const chartHeight = canvas.height - margin.top - margin.bottom;
     
     // Converter coordenadas do canvas para valores do gráfico
-    const canvasX = x - rect.left;
-    const canvasY = y - rect.top;
+    const canvasX = (x - rect.left) * (canvas.width / rect.width);
+    const canvasY = (y - rect.top) * (canvas.height / rect.height);
+    
+    // Verificar se o mouse está na área da legenda
+    const legendY = margin.top - 20;
+    
+    for (let i = 0; i < seriesData.length; i++) {
+      const itemX = margin.left + i * 120;
+      if (canvasX >= itemX && canvasX <= itemX + 120 &&
+          canvasY >= legendY - 10 && canvasY <= legendY + 10) {
+        return i;
+      }
+    }
     
     // Verificar se o mouse está dentro da área do gráfico
     if (canvasX < margin.left || canvasX > margin.left + chartWidth ||
@@ -375,26 +494,33 @@ const CanvasMultiAxisChart: React.FC = () => {
     let closestDistance = Infinity;
     let closestSeriesIndex = null;
     
-    seriesData.forEach((series, seriesIndex) => {
-      // Encontrar o ponto mais próximo ao X do mouse
-      const xIndex = Math.round(dataX);
-      if (xIndex >= 0 && xIndex < series.data.length) {
-        const point = series.data[xIndex];
+    seriesData.forEach((series, dataSeriesIndex) => {
+      // Interpolar entre os dois pontos mais próximos para maior precisão
+      const xIndexLow = Math.floor(dataX);
+      const xIndexHigh = Math.ceil(dataX);
+      
+      if (xIndexLow >= 0 && xIndexHigh < series.data.length) {
+        // Interpolação linear
+        const point1 = series.data[xIndexLow];
+        const point2 = series.data[xIndexHigh];
+        const fraction = dataX - xIndexLow;
+        
+        const interpolatedY = point1.y + fraction * (point2.y - point1.y);
         
         // Obter a configuração do eixo Y para esta série
         const axis = yAxes.find(a => a.id === series.axisId);
         if (!axis) return;
         
         // Converter valor Y para coordenada do canvas
-        const normalizedY = (point.y - axis.min) / (axis.max - axis.min);
+        const normalizedY = (interpolatedY - axis.min) / (axis.max - axis.min);
         const pointCanvasY = margin.top + chartHeight - normalizedY * chartHeight;
         
         // Calcular distância ao mouse
         const distance = Math.abs(pointCanvasY - canvasY);
         
-        if (distance < closestDistance && distance < 30) { // Limite de 30px para detecção
+        if (distance < closestDistance && distance < 25) { // Limite de 25px para detecção
           closestDistance = distance;
-          closestSeriesIndex = seriesIndex;
+          closestSeriesIndex = dataSeriesIndex;
         }
       }
     });
@@ -488,6 +614,39 @@ const CanvasMultiAxisChart: React.FC = () => {
       // Detectar hover em séries
       const nearestSeries = findNearestSeries(e.clientX, e.clientY);
       setHoveredSeries(nearestSeries);
+      
+      // Atualizar tooltip se hover em uma série
+      if (nearestSeries !== null) {
+        const rect = canvas.getBoundingClientRect();
+        const margin = { top: 50, right: 60, bottom: 40, left: 80 };
+        const chartWidth = canvas.width - margin.left - margin.right;
+        
+        // Converter coordenadas do mouse para valores do gráfico
+        const mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
+        const xRatio = (mouseX - margin.left) / chartWidth;
+        const dataXFloat = ((xRatio - zoom.offsetX) / zoom.scale) * (seriesData[0].data.length - 1);
+        
+        // Interpolar entre pontos para maior precisão
+        const xIndex = Math.floor(dataXFloat);
+        const series = seriesData[nearestSeries];
+        
+        if (xIndex >= 0 && xIndex < series.data.length - 1) {
+          const fraction = dataXFloat - xIndex;
+          const point1 = series.data[xIndex];
+          const point2 = series.data[xIndex + 1];
+          
+          const interpolatedY = point1.y + fraction * (point2.y - point1.y);
+          
+          setTooltip({
+            x: mouseX,
+            y: coords.y,
+            value: interpolatedY,
+            series: nearestSeries
+          });
+        }
+      } else {
+        setTooltip(null);
+      }
     }
   };
 
@@ -519,6 +678,7 @@ const CanvasMultiAxisChart: React.FC = () => {
     setIsDragging(false);
     setIsSelecting(false);
     setHoveredSeries(null);
+    setTooltip(null);
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
@@ -580,14 +740,14 @@ const CanvasMultiAxisChart: React.FC = () => {
   }, [dimensions.width]); // Adiciona dimensions.width como dependência
 
   // Memorizar a função de desenho para evitar redesenhos desnecessários
-  const memoDrawChart = useMemo(() => drawChart, [dimensions, hoveredSeries, zoom, selectionMode, isSelecting, selectionStart, selectionEnd]);
+  const memoDrawChart = useMemo(() => drawChart, [dimensions, hoveredSeries, zoom, selectionMode, isSelecting, selectionStart, selectionEnd, tooltip]);
   
   // Desenhar o gráfico sempre que as dependências mudarem
   useEffect(() => {
     // Usando requestAnimationFrame para desenho mais eficiente
     const frameId = requestAnimationFrame(() => drawChart());
     return () => cancelAnimationFrame(frameId);
-  }, [dimensions, hoveredSeries, zoom, selectionMode, isSelecting, selectionStart, selectionEnd]);
+  }, [dimensions, hoveredSeries, zoom, selectionMode, isSelecting, selectionStart, selectionEnd, tooltip]);
 
   return (
     <div style={{ width: '100%', fontFamily: 'Arial, sans-serif' }}>
