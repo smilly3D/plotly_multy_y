@@ -176,7 +176,7 @@ const CanvasMultiAxisChart: React.FC = () => {
       const axisOpacity = isHighlighted ? 1.0 : 0.3;
       
       // Posição do eixo Y
-      let axisX = axis.position === 'left' 
+      const axisX = axis.position === 'left' 
           ? margin.left 
           : margin.left + chartWidth + axis.offset;
 
@@ -308,9 +308,9 @@ const CanvasMultiAxisChart: React.FC = () => {
     hex = hex.replace('#', '');
     
     // Converter para RGB
-    let r = parseInt(hex.length === 3 ? hex.slice(0, 1).repeat(2) : hex.slice(0, 2), 16);
-    let g = parseInt(hex.length === 3 ? hex.slice(1, 2).repeat(2) : hex.slice(2, 4), 16);
-    let b = parseInt(hex.length === 3 ? hex.slice(2, 3).repeat(2) : hex.slice(4, 6), 16);
+    const r = parseInt(hex.length === 3 ? hex.slice(0, 1).repeat(2) : hex.slice(0, 2), 16);
+    const g = parseInt(hex.length === 3 ? hex.slice(1, 2).repeat(2) : hex.slice(2, 4), 16);
+    const b = parseInt(hex.length === 3 ? hex.slice(2, 3).repeat(2) : hex.slice(4, 6), 16);
     
     // Retornar como rgba
     return `rgba(${r}, ${g}, ${b}, ${opacity})`;
