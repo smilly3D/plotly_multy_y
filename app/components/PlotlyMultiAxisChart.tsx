@@ -58,6 +58,26 @@ const generateSampleData = (): TracesData => {
       marker: { color: '#2ca02c' },
       line: { width: 2 }
     },
+     aVento: {
+      x: x_labels,
+      y: Array.from({ length: points }, () => Math.random() * 360), // 0 a 360
+      name: 'aVento (°)',
+      type: 'scatter',
+      mode: 'lines+markers',
+      yaxis: 'y4', // Associado ao quarto eixo Y
+      marker: { color: '#fffaaa' },
+      line: { width: 2 }
+    },
+    bVento: {
+      x: x_labels,
+      y: Array.from({ length: points }, () => Math.random() * 360), // 0 a 360
+      name: 'bVento (°)',
+      type: 'scatter',
+      mode: 'lines+markers',
+      yaxis: 'y5', // Associado ao quinto eixo Y
+      marker: { color: '#8fcffc' },
+      line: { width: 2 }
+    },
   };
 };
 
@@ -168,6 +188,7 @@ const PlotlyMultiAxisChart = () => {
   // Layout
   const layout = useMemo(() => {
     const baseLayout: Partial<Layout> = {
+      uirevision:'true',
       title: {
         text: 'Monitoramento Meteorológico Interativo',
         font: { size: 24 }
@@ -210,12 +231,36 @@ const PlotlyMultiAxisChart = () => {
         position: 1.0, // Posiciona um pouco mais à direita
         tickfont: { color: '#2ca02c' },
       },
+      yaxis4: {
+        title: {
+          text: 'aVento (°)',
+          font: { color: '#fffaaa' }
+        },
+        visible: false, // Começa invisível
+        overlaying: 'y',
+        side: 'right',
+        anchor: 'free',
+        position: 0.85, // Posiciona mais à esquerda que yaxis3
+        tickfont: { color: '#fffaaa' },
+      },
+      yaxis5: {
+        title: {
+          text: 'bVento (°)',
+          font: { color: '#8fcffc' }
+        },
+        visible: false, // Começa invisível
+        overlaying: 'y',
+        side: 'right',
+        anchor: 'free',
+        position: 0.90, // Posiciona entre yaxis4 e yaxis3
+        tickfont: { color: '#8fcffc' },
+      },
       legend: { 
         x: 0.1, 
         y: 1.15, 
         orientation: 'h'
       },
-      margin: { r: 120 }, // Adiciona margem para acomodar múltiplos eixos
+      margin: { r: 200 }, // Adiciona margem para acomodar múltiplos eixos
       hovermode: 'closest',
       paper_bgcolor: 'rgba(0,0,0,0)',
       plot_bgcolor: 'rgba(255,255,255,0.9)',
@@ -241,6 +286,10 @@ const PlotlyMultiAxisChart = () => {
         baseLayout.yaxis2.visible = true;
       } else if (axisKey === 'yaxis3' && baseLayout.yaxis3) {
         baseLayout.yaxis3.visible = true;
+         } else if (axisKey === 'yaxis4' && baseLayout.yaxis4) {
+        baseLayout.yaxis4.visible = true;
+      } else if (axisKey === 'yaxis5' && baseLayout.yaxis5) {
+        baseLayout.yaxis5.visible = true;
       }
     }
     
