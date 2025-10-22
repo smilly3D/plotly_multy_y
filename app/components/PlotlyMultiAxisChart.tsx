@@ -102,6 +102,8 @@ const PlotlyMultiAxisChart = () => {
   
   // Referência para o contêiner do gráfico
   const plotContainerRef = useRef<HTMLDivElement>(null);
+  // uirevision para preservar zoom/pan entre atualizações (não muda ao hover)
+  const uirevisionRef = useRef<number>(Date.now());
 
   // Função para encontrar o ponto mais próximo ao mouse
   const findClosestPoint = (mouseX: number, mouseY: number) => {
@@ -173,6 +175,11 @@ const PlotlyMultiAxisChart = () => {
   
   // Função para controlar quais traces estão visíveis via botões
   const handleTraceToggle = (traceKey: string) => {
+    // Atualiza o uirevision quando o usuário muda visibilidade das curvas
+    // Isso fará com que uma mudança explícita de seleção resete o zoom,
+    // mas não o hover (que não altera uirevision)
+    uirevisionRef.current = Date.now();
+
     setVisibleTraces(prev => {
       const isVisible = prev.includes(traceKey);
       if (isVisible) {
@@ -188,7 +195,6 @@ const PlotlyMultiAxisChart = () => {
   // Layout
   const layout = useMemo(() => {
     const baseLayout: Partial<Layout> = {
-      uirevision:'true',
       title: {
         text: 'Monitoramento Meteorológico Interativo',
         font: { size: 24 }
@@ -271,8 +277,11 @@ const PlotlyMultiAxisChart = () => {
       }
     };
 
-    // A MÁGICA ACONTECE AQUI! Bem simplificada agora
-    // Trata hover e single selection da mesma forma
+    // Preservar o estado de zoom/pan entre atualizações do layout/data
+    // (útil para quando alteramos apenas a aparência via hover)
+    (baseLayout as any).uirevision = uirevisionRef.current;
+
+    // Mostra o eixo Y apenas quando há hover ou seleção única
     const singleActiveTrace = hoveredTraceKey || (visibleTraces.length === 1 ? visibleTraces[0] : null);
     
     if (singleActiveTrace) {
@@ -286,7 +295,7 @@ const PlotlyMultiAxisChart = () => {
         baseLayout.yaxis2.visible = true;
       } else if (axisKey === 'yaxis3' && baseLayout.yaxis3) {
         baseLayout.yaxis3.visible = true;
-         } else if (axisKey === 'yaxis4' && baseLayout.yaxis4) {
+      } else if (axisKey === 'yaxis4' && baseLayout.yaxis4) {
         baseLayout.yaxis4.visible = true;
       } else if (axisKey === 'yaxis5' && baseLayout.yaxis5) {
         baseLayout.yaxis5.visible = true;
@@ -298,16 +307,27 @@ const PlotlyMultiAxisChart = () => {
 
   // Combina a funcionalidade de hover com a seleção por botão
   const dataToPlot: Partial<Data>[] = useMemo(() => {
-    // Se temos uma linha em hover, tratamos exatamente como se só ela estivesse selecionada
-    const effectiveVisibleTraces = hoveredTraceKey ? [hoveredTraceKey] : visibleTraces;
-    
-    return effectiveVisibleTraces.map(key => {
+    // Sempre mostrar todas as linhas visíveis, mas controlar a opacidade/destaque
+    return visibleTraces.map(key => {
       const trace = allTracesData[key];
       
-      // Se temos hover, destaca a linha em hover com uma linha mais grossa
+      // Se temos hover e esta NÃO é a linha com hover, deixa semi-transparente
+      if (hoveredTraceKey && hoveredTraceKey !== key) {
+        return {
+          ...trace,
+          opacity: 0.2, // Deixa as outras linhas semi-transparentes
+          line: {
+            ...trace.line,
+            width: 2
+          }
+        };
+      }
+      
+      // Se é a linha com hover, destaca
       if (hoveredTraceKey === key) {
         return {
           ...trace,
+          opacity: 1,
           line: {
             ...trace.line,
             width: 4 // Linha mais grossa para destaque
@@ -316,7 +336,14 @@ const PlotlyMultiAxisChart = () => {
       }
       
       // Caso contrário, mostra a linha normalmente
-      return trace;
+      return {
+        ...trace,
+        opacity: 1,
+        line: {
+          ...trace.line,
+          width: 2
+        }
+      };
     });
   }, [visibleTraces, hoveredTraceKey]);
 
