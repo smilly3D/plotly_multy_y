@@ -314,14 +314,22 @@ const CanvasMultiAxisChart: React.FC = () => {
       const width = Math.abs(selectionEnd.x - selectionStart.x);
       const height = Math.abs(selectionEnd.y - selectionStart.y);
       
-      // Retângulo semi-transparente
-      ctx.fillStyle = 'rgba(66, 133, 244, 0.2)';
+      // Retângulo semi-transparente com cor mais visível
+      ctx.fillStyle = 'rgba(66, 133, 244, 0.25)';
       ctx.fillRect(x, y, width, height);
       
-      // Borda do retângulo
-      ctx.strokeStyle = 'rgba(66, 133, 244, 0.8)';
-      ctx.lineWidth = 1;
+      // Borda do retângulo mais grossa e mais visível
+      ctx.strokeStyle = 'rgba(25, 118, 210, 0.9)';
+      ctx.lineWidth = 3;
       ctx.strokeRect(x, y, width, height);
+      
+      // Indicadores de tamanho nos cantos para melhor visibilidade
+      ctx.fillStyle = 'rgba(25, 118, 210, 1)';
+      const cornerSize = 6;
+      ctx.fillRect(x - cornerSize/2, y - cornerSize/2, cornerSize, cornerSize);
+      ctx.fillRect(x + width - cornerSize/2, y - cornerSize/2, cornerSize, cornerSize);
+      ctx.fillRect(x - cornerSize/2, y + height - cornerSize/2, cornerSize, cornerSize);
+      ctx.fillRect(x + width - cornerSize/2, y + height - cornerSize/2, cornerSize, cornerSize);
     }
   };
 
@@ -414,7 +422,7 @@ const CanvasMultiAxisChart: React.FC = () => {
     const canvas = canvasRef.current;
     if (!canvas || !isSelecting) return;
     
-    const margin = { top: 40, right: 180, bottom: 40, left: 60 };
+    const margin = { top: 50, right: 180, bottom: 40, left: 60 };
     const chartWidth = canvas.width - margin.left - margin.right;
     
     // Converter coordenadas de seleção para valores normalizados (0 a 1) no eixo X
@@ -459,6 +467,15 @@ const CanvasMultiAxisChart: React.FC = () => {
     if (selectionMode && isSelecting) {
       // Atualizar o ponto final da seleção durante o arrasto
       setSelectionEnd(coords);
+      // Forçar redesenho IMEDIATO do canvas para mostrar o retângulo de seleção em tempo real
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          // Primeiro redesenhamos todo o gráfico
+          drawChart();
+        }
+      }
     } else if (isDragging) {
       // Calcular movimento para pan
       const deltaX = (e.clientX - dragStart.x) / canvas.width;
@@ -481,6 +498,8 @@ const CanvasMultiAxisChart: React.FC = () => {
       setIsSelecting(true);
       setSelectionStart(coords);
       setSelectionEnd(coords);
+      // Forçar desenho imediato ao iniciar a seleção
+      requestAnimationFrame(() => drawChart());
     } else {
       setIsDragging(true);
       setDragStart({ x: e.clientX, y: e.clientY });
@@ -561,14 +580,14 @@ const CanvasMultiAxisChart: React.FC = () => {
   }, [dimensions.width]); // Adiciona dimensions.width como dependência
 
   // Memorizar a função de desenho para evitar redesenhos desnecessários
-  const memoDrawChart = useMemo(() => drawChart, [dimensions, hoveredSeries, zoom]);
+  const memoDrawChart = useMemo(() => drawChart, [dimensions, hoveredSeries, zoom, selectionMode, isSelecting, selectionStart, selectionEnd]);
   
   // Desenhar o gráfico sempre que as dependências mudarem
   useEffect(() => {
     // Usando requestAnimationFrame para desenho mais eficiente
     const frameId = requestAnimationFrame(() => drawChart());
     return () => cancelAnimationFrame(frameId);
-  }, [dimensions, hoveredSeries, zoom]);
+  }, [dimensions, hoveredSeries, zoom, selectionMode, isSelecting, selectionStart, selectionEnd]);
 
   return (
     <div style={{ width: '100%', fontFamily: 'Arial, sans-serif' }}>
@@ -628,7 +647,7 @@ const CanvasMultiAxisChart: React.FC = () => {
           style={{ 
             width: '100%', 
             height: 'auto',
-            cursor: selectionMode ? 'crosshair' : isDragging ? 'grabbing' : 'grab'
+            cursor: selectionMode ? (isSelecting ? 'crosshair' : 'cell') : isDragging ? 'grabbing' : 'grab'
           }}
         />
       </div>
